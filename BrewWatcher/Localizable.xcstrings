@@ -51,6 +51,26 @@
         }
       }
     },
+    "Launch at login" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starta vid inloggning"
+          }
+        }
+      }
+    },
+    "Couldn't change launch at login: %@" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunde inte ändra autostart: %@"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "localizations" : {
         "sv" : {

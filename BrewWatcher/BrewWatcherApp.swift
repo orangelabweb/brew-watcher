@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import ServiceManagement
 
 // MARK: - App
 
@@ -156,6 +157,28 @@ final class BrewMonitor: ObservableObject {
     deinit {
         timer?.invalidate()
         installPollTimer?.invalidate()
+    }
+
+    // MARK: - Launch at login
+
+    var launchAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            objectWillChange.send()
+            do {
+                if newValue {
+                    if SMAppService.mainApp.status != .enabled {
+                        try SMAppService.mainApp.register()
+                    }
+                } else {
+                    if SMAppService.mainApp.status == .enabled {
+                        try SMAppService.mainApp.unregister()
+                    }
+                }
+            } catch {
+                errorMessage = String(localized: "Couldn't change launch at login: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func startupCheck() async {
@@ -663,12 +686,18 @@ struct MenuView: View {
 
     private var footer: some View {
         HStack {
+            Toggle("Launch at login", isOn: Binding(
+                get: { brew.launchAtLogin },
+                set: { brew.launchAtLogin = $0 }
+            ))
+            .toggleStyle(.checkbox)
+            .font(.caption)
+            Spacer()
             if let last = brew.lastChecked {
                 Text("Last: \(last.formatted(date: .omitted, time: .shortened))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Spacer()
             Button("Quit") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)
                 .font(.caption)
