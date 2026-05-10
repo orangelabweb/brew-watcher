@@ -1,0 +1,299 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ can be updated" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ kan uppdateras"
+          }
+        }
+      }
+    },
+    "%lld new packages can be updated" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld nya paket kan uppdateras"
+          }
+        }
+      }
+    },
+    "All up to date ✨" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allt är uppdaterat ✨"
+          }
+        }
+      }
+    },
+    "brew %@ failed" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "brew %@ misslyckades"
+          }
+        }
+      }
+    },
+    "BrewWatcher is ready to use" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BrewWatcher är redo att användas"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avbryt"
+          }
+        }
+      }
+    },
+    "Check again" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kolla igen"
+          }
+        }
+      }
+    },
+    "Checking..." : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kollar..."
+          }
+        }
+      }
+    },
+    "Clicking the button below opens Terminal with the official install script. You'll need to enter your password." : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "När du klickar på knappen nedan öppnas Terminal med det officiella installationsskriptet. Du kommer att behöva ange ditt lösenord."
+          }
+        }
+      }
+    },
+    "Couldn't open Terminal: %@" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunde inte öppna Terminal: %@"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klar"
+          }
+        }
+      }
+    },
+    "Downloading" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laddar ner"
+          }
+        }
+      }
+    },
+    "Fetching" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hämtar"
+          }
+        }
+      }
+    },
+    "Finish the installation in the Terminal window. BrewWatcher will detect when Homebrew is ready." : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slutför installationen i Terminal-fönstret. BrewWatcher upptäcker automatiskt när Homebrew är klart."
+          }
+        }
+      }
+    },
+    "Homebrew" : {
+      "shouldTranslate" : false
+    },
+    "Homebrew doesn't appear to be installed. BrewWatcher needs it to work." : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Homebrew verkar inte vara installerat. För att BrewWatcher ska fungera behöver vi installera det först."
+          }
+        }
+      }
+    },
+    "Homebrew installed" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Homebrew installerat"
+          }
+        }
+      }
+    },
+    "Homebrew not found" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Homebrew hittades inte"
+          }
+        }
+      }
+    },
+    "Install Homebrew" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installera Homebrew"
+          }
+        }
+      }
+    },
+    "Installing" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installerar"
+          }
+        }
+      }
+    },
+    "Installing Homebrew" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installerar Homebrew"
+          }
+        }
+      }
+    },
+    "Last: %@" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senast: %@"
+          }
+        }
+      }
+    },
+    "Learn more at brew.sh" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Läs mer på brew.sh"
+          }
+        }
+      }
+    },
+    "Preparing" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Förbereder"
+          }
+        }
+      }
+    },
+    "Quit" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avsluta"
+          }
+        }
+      }
+    },
+    "Starting..." : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Startar..."
+          }
+        }
+      }
+    },
+    "Timed out. Press 'Install Homebrew' again to try once more." : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tidsgränsen gick ut. Tryck på 'Installera Homebrew' igen om du vill försöka på nytt."
+          }
+        }
+      }
+    },
+    "Updating..." : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uppdaterar..."
+          }
+        }
+      }
+    },
+    "Upgrade all" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uppdatera alla"
+          }
+        }
+      }
+    },
+    "Welcome to BrewWatcher" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Välkommen till BrewWatcher"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

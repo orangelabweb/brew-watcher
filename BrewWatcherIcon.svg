@@ -1,0 +1,93 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFC062"/>
+      <stop offset="100%" stop-color="#D9760F"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.40"/>
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="innerEdge" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="beer" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#F4C430"/>
+      <stop offset="50%" stop-color="#E8A317"/>
+      <stop offset="100%" stop-color="#B8860B"/>
+    </linearGradient>
+    <linearGradient id="glassReflect" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="15%" stop-color="#FFFFFF" stop-opacity="0.0"/>
+      <stop offset="85%" stop-color="#FFFFFF" stop-opacity="0.0"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.20"/>
+    </linearGradient>
+    <linearGradient id="foamGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F0E4D0"/>
+    </linearGradient>
+    <filter id="mugShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="18"/>
+      <feOffset dx="0" dy="14"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.30"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="squircle">
+      <path d="M 512,0 C 180,0 0,180 0,512 C 0,844 180,1024 512,1024 C 844,1024 1024,844 1024,512 C 1024,180 844,0 512,0 Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="700" fill="url(#gloss)"/>
+  </g>
+  <path d="M 512,8 C 184,8 8,184 8,512 C 8,840 184,1016 512,1016 C 840,1016 1016,840 1016,512 C 1016,184 840,8 512,8 Z" fill="none" stroke="url(#innerEdge)" stroke-width="3"/>
+  <path d="M 512,0 C 180,0 0,180 0,512 C 0,844 180,1024 512,1024 C 844,1024 1024,844 1024,512 C 1024,180 844,0 512,0 Z" fill="none" stroke="#000000" stroke-opacity="0.10" stroke-width="2"/>
+
+  <g filter="url(#mugShadow)" transform="translate(512 540)">
+    <!-- Handtag -->
+    <path d="M 195,-90 C 305,-90 345,-20 345,55 C 345,130 305,200 195,200 L 195,135 C 265,135 280,90 280,55 C 280,20 265,-25 195,-25 Z"
+          fill="#FFFFFF" fill-opacity="0.92" stroke="#5C3A0F" stroke-width="12" stroke-linejoin="round"/>
+    <!-- Glas -->
+    <path d="M -230,-220 L 230,-220 L 215,260 C 215,275 200,285 185,285 L -185,285 C -200,285 -215,275 -215,260 Z"
+          fill="#FFFFFF" fill-opacity="0.18" stroke="#5C3A0F" stroke-width="14" stroke-linejoin="round"/>
+    <!-- Öl -->
+    <path d="M -210,-100 L 210,-100 L 197,257 C 197,268 187,275 175,275 L -175,275 C -187,275 -197,268 -197,257 Z"
+          fill="url(#beer)"/>
+    <!-- Bubblor lägre ner, så ögonen får plats i mitten -->
+    <circle cx="-130" cy="200" r="6" fill="#FFFFFF" opacity="0.45"/>
+    <circle cx="-90" cy="245" r="7" fill="#FFFFFF" opacity="0.50"/>
+    <circle cx="60" cy="220" r="6" fill="#FFFFFF" opacity="0.45"/>
+    <circle cx="120" cy="180" r="5" fill="#FFFFFF" opacity="0.40"/>
+    <circle cx="20" cy="255" r="5" fill="#FFFFFF" opacity="0.45"/>
+    <!-- Glasreflektion -->
+    <path d="M -210,-100 L 210,-100 L 197,257 C 197,268 187,275 175,275 L -175,275 C -187,275 -197,268 -197,257 Z"
+          fill="url(#glassReflect)"/>
+    <!-- Skum -->
+    <path d="M -210,-105 C -210,-180 -160,-235 -90,-225 C -55,-260 -10,-258 25,-235 C 65,-260 120,-255 150,-225 C 200,-235 230,-180 220,-105 Z"
+          fill="url(#foamGrad)" stroke="#5C3A0F" stroke-width="14" stroke-linejoin="round"/>
+    <ellipse cx="-100" cy="-180" rx="35" ry="14" fill="#FFFFFF" opacity="0.85"/>
+    <ellipse cx="40" cy="-200" rx="40" ry="15" fill="#FFFFFF" opacity="0.85"/>
+    <ellipse cx="150" cy="-180" rx="30" ry="12" fill="#FFFFFF" opacity="0.75"/>
+
+    <!-- STORA ÖGON mitt på glaset, flytande i ölen -->
+    <!-- Vänster öga -->
+    <ellipse cx="-78" cy="50" rx="55" ry="62" fill="#FFFFFF" stroke="#5C3A0F" stroke-width="10"/>
+    <!-- Vänster pupill (tittar lite uppåt-höger, nyfiket/uppmärksamt) -->
+    <ellipse cx="-68" cy="58" rx="24" ry="28" fill="#2C1810"/>
+    <!-- Vänster highlight -->
+    <circle cx="-60" cy="48" r="9" fill="#FFFFFF"/>
+    <circle cx="-78" cy="68" r="4" fill="#FFFFFF" opacity="0.7"/>
+
+    <!-- Höger öga -->
+    <ellipse cx="78" cy="50" rx="55" ry="62" fill="#FFFFFF" stroke="#5C3A0F" stroke-width="10"/>
+    <ellipse cx="88" cy="58" rx="24" ry="28" fill="#2C1810"/>
+    <circle cx="96" cy="48" r="9" fill="#FFFFFF"/>
+    <circle cx="78" cy="68" r="4" fill="#FFFFFF" opacity="0.7"/>
+
+    <!-- Vänster glas-highlight -->
+    <path d="M -195,-90 L -175,-90 L -180,250 L -200,250 Z" fill="#FFFFFF" opacity="0.45"/>
+  </g>
+</svg>
