@@ -96,6 +96,13 @@ private nonisolated final class LineBuffer: @unchecked Sendable {
     }
 }
 
+private nonisolated final class TimeoutFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = false
+    var value: Bool { lock.lock(); defer { lock.unlock() }; return _value }
+    func set() { lock.lock(); _value = true; lock.unlock() }
+}
+
 /// Thread-safe Data accumulator used by `runBrew` to drain stdout/stderr from
 /// readability handlers without capturing a mutable `var` across actor boundaries.
 private nonisolated final class DataAccumulator: @unchecked Sendable {
@@ -126,23 +133,32 @@ final class BrewMonitor: ObservableObject {
     @Published var errorMessage: String?
     @Published var progress: UpgradeProgress?
     @Published var brewState: BrewState
+    @Published private(set) var launchAtLogin: Bool = false
 
     private var timer: Timer?
     private var installPollTimer: Timer?
+    private var wakeObserver: NSObjectProtocol?
     private let checkInterval: TimeInterval = 6 * 60 * 60
+    private let upgradeTimeout: TimeInterval = 60 * 60
 
     private let candidatePaths = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
     private var cachedBrewPath: String?
 
-    /// Set of package names from the previous check. Used to notify only on
-    /// newly-outdated packages instead of pinging every 6h with the same list.
-    private var previouslyNotifiedNames: Set<String> = []
+    private static let notifiedNamesKey = "previouslyNotifiedNames"
+
+    /// Set of package names from the previous check. Persisted so we don't
+    /// re-notify for the same outdated packages after a relaunch.
+    private var previouslyNotifiedNames: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: Self.notifiedNamesKey) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: Self.notifiedNamesKey) }
+    }
 
     private var brewPath: String? {
-        if let cached = cachedBrewPath { return cached }
-        let resolved = candidatePaths.first { FileManager.default.fileExists(atPath: $0) }
-        cachedBrewPath = resolved
-        return resolved
+        if let cached = cachedBrewPath, FileManager.default.fileExists(atPath: cached) {
+            return cached
+        }
+        cachedBrewPath = candidatePaths.first { FileManager.default.fileExists(atPath: $0) }
+        return cachedBrewPath
     }
 
     init() {
@@ -152,32 +168,49 @@ final class BrewMonitor: ObservableObject {
         } else {
             brewState = .notInstalled
         }
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.handleWake() }
+        }
     }
 
     deinit {
         timer?.invalidate()
         installPollTimer?.invalidate()
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+    }
+
+    private func handleWake() {
+        guard brewState == .ready else { return }
+        let last = lastChecked ?? .distantPast
+        if Date().timeIntervalSince(last) >= checkInterval {
+            Task { await check() }
+        }
     }
 
     // MARK: - Launch at login
 
-    var launchAtLogin: Bool {
-        get { SMAppService.mainApp.status == .enabled }
-        set {
-            objectWillChange.send()
-            do {
-                if newValue {
-                    if SMAppService.mainApp.status != .enabled {
-                        try SMAppService.mainApp.register()
-                    }
-                } else {
-                    if SMAppService.mainApp.status == .enabled {
-                        try SMAppService.mainApp.unregister()
-                    }
+    func setLaunchAtLogin(_ newValue: Bool) {
+        do {
+            if newValue {
+                if SMAppService.mainApp.status != .enabled {
+                    try SMAppService.mainApp.register()
                 }
-            } catch {
-                errorMessage = String(localized: "Couldn't change launch at login: \(error.localizedDescription)")
+            } else {
+                if SMAppService.mainApp.status == .enabled {
+                    try SMAppService.mainApp.unregister()
+                }
             }
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        } catch {
+            errorMessage = String(localized: "Couldn't change launch at login: \(error.localizedDescription)")
+            launchAtLogin = SMAppService.mainApp.status == .enabled
         }
     }
 
@@ -265,7 +298,7 @@ final class BrewMonitor: ObservableObject {
     // MARK: - Check / Upgrade
 
     func check() async {
-        guard !isChecking, let _ = brewPath else { return }
+        guard !isChecking, brewPath != nil else { return }
         isChecking = true
         errorMessage = nil
         defer { isChecking = false }
@@ -304,7 +337,7 @@ final class BrewMonitor: ObservableObject {
         }
 
         do {
-            try await runBrewStreaming(["upgrade", "--verbose"]) { [weak self] line in
+            try await runBrewStreaming(["upgrade", "--verbose"], timeout: upgradeTimeout) { [weak self] line in
                 self?.parseUpgradeLine(line)
             }
             _ = try await runBrew(["cleanup"])
@@ -346,7 +379,9 @@ final class BrewMonitor: ObservableObject {
             progress?.status = "Done"
         }
 
-        if let regex = Self.percentRegex {
+        // Skip percent parse on status-marker lines so a stray `%` in
+        // a `==> ...` line doesn't override a freshly-cleared percent.
+        if !clean.hasPrefix("==>"), let regex = Self.percentRegex {
             let range = NSRange(clean.startIndex..., in: clean)
             if let match = regex.firstMatch(in: clean, range: range),
                let r = Range(match.range(at: 1), in: clean),
@@ -410,11 +445,12 @@ final class BrewMonitor: ObservableObject {
     }
 
     private func runBrewStreaming(_ args: [String],
+                                  timeout: TimeInterval? = nil,
                                   onLine: @escaping (String) -> Void) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             guard let process = makeProcess(args: args) else {
                 cont.resume(throwing: NSError(domain: "Brew", code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Homebrew hittades inte"]))
+                    userInfo: [NSLocalizedDescriptionKey: String(localized: "Homebrew not found")]))
                 return
             }
             let outPipe = Pipe(), errPipe = Pipe()
@@ -434,11 +470,24 @@ final class BrewMonitor: ObservableObject {
                 if !d.isEmpty { buffer.append(d) }
             }
 
+            let timedOut = TimeoutFlag()
+            if let timeout {
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak process] in
+                    guard let process, process.isRunning else { return }
+                    timedOut.set()
+                    process.terminate()
+                }
+            }
+
             process.terminationHandler = { proc in
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 errPipe.fileHandleForReading.readabilityHandler = nil
                 if proc.terminationStatus == 0 {
                     cont.resume()
+                } else if timedOut.value {
+                    cont.resume(throwing: NSError(domain: "Brew", code: -2,
+                        userInfo: [NSLocalizedDescriptionKey:
+                            String(localized: "Upgrade timed out")]))
                 } else {
                     let argString = args.joined(separator: " ")
                     cont.resume(throwing: NSError(domain: "Brew",
@@ -469,11 +518,18 @@ final class BrewMonitor: ObservableObject {
     }
 
     private func notify(title: String, body: String) {
-        let script = #"display notification "\#(body)" with title "\#(title)" sound name "Glass""#
+        let safeTitle = Self.escapeAppleScript(title)
+        let safeBody = Self.escapeAppleScript(body)
+        let script = #"display notification "\#(safeBody)" with title "\#(safeTitle)" sound name "Glass""#
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         task.arguments = ["-e", script]
         try? task.run()
+    }
+
+    private static func escapeAppleScript(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+         .replacingOccurrences(of: "\"", with: "\\\"")
     }
 }
 
@@ -625,6 +681,11 @@ struct MenuView: View {
                 .foregroundStyle(.red)
                 .textSelection(.enabled)
                 .padding(12)
+        } else if brew.isUpgrading {
+            Text("Upgrading...")
+                .foregroundStyle(.secondary)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .center)
         } else if brew.outdated.isEmpty {
             Group {
                 if brew.lastChecked == nil {
@@ -688,7 +749,7 @@ struct MenuView: View {
         HStack {
             Toggle("Launch at login", isOn: Binding(
                 get: { brew.launchAtLogin },
-                set: { brew.launchAtLogin = $0 }
+                set: { brew.setLaunchAtLogin($0) }
             ))
             .toggleStyle(.checkbox)
             .font(.caption)

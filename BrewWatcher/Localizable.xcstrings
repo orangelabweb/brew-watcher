@@ -304,6 +304,26 @@
         }
       }
     },
+    "Upgrade timed out" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uppdateringen avbröts (tidsgränsen nåddes)"
+          }
+        }
+      }
+    },
+    "Upgrading..." : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uppdaterar..."
+          }
+        }
+      }
+    },
     "Welcome to BrewWatcher" : {
       "localizations" : {
         "sv" : {
