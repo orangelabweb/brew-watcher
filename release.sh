@@ -8,7 +8,7 @@ set -euo pipefail
 APP_NAME="BrewWatcher"
 SCHEME="BrewWatcher"
 PROJECT="BrewWatcher.xcodeproj"
-DEV_ID="Developer ID Application: Ditt Namn (TEAM12345)"
+DEV_ID="Developer ID Application: Rickard Westerlind (664D3GY9WJ)"
 KEYCHAIN_PROFILE="brewwatcher-notary"
 BUILD_DIR="./build"
 APP_PATH="$BUILD_DIR/Build/Products/Release/$APP_NAME.app"
