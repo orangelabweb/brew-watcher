@@ -777,9 +777,11 @@ struct MenuView: View {
 
     private var notInstalledView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 8) {
                 Image(systemName: "mug.fill")
                 Text("Welcome to BrewWatcher").font(.headline)
+                Spacer()
+                quitButton
             }
 
             Text("Homebrew doesn't appear to be installed. BrewWatcher needs it to work.")
@@ -799,14 +801,6 @@ struct MenuView: View {
                     brew.installBrew()
                 }
                 .keyboardShortcut(.return)
-            }
-
-            Divider()
-            HStack {
-                Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
             }
         }
         .padding(14)
@@ -886,16 +880,23 @@ struct MenuView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
             Image(systemName: "mug.fill")
             Text("Homebrew").font(.headline)
             Spacer()
             if brew.isChecking || brew.isUpgrading {
                 ProgressView().controlSize(.small)
             }
+            quitButton
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    private var quitButton: some View {
+        Button("Quit") { NSApplication.shared.terminate(nil) }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
     }
 
     private func progressSection(_ p: UpgradeProgress) -> some View {
@@ -1005,9 +1006,6 @@ struct MenuView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Button("Quit") { NSApplication.shared.terminate(nil) }
-                .buttonStyle(.borderless)
-                .font(.caption)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
