@@ -1,71 +1,77 @@
 # BrewWatcher
 
-Menyradsapp för macOS som håller koll på Homebrew-paket och påminner dig om uppdateringar.
+A macOS menu bar app that watches your Homebrew packages and reminds you to upgrade them.
 
-## Filer
+Lives in the menu bar, checks `brew outdated` every 6 hours, and shows a badge when packages can be upgraded. Click it for the list, hit **Upgrade all**, and watch per-package progress as brew works.
 
-- **`BrewWatcherApp.swift`** — hela appens källkod (SwiftUI, en fil)
-- **`BrewWatcherIcon.svg`** — ikonens källfil (vektorgrafik)
-- **`AppIcon.appiconset/`** — färdig icon set för Xcode (alla storlekar)
-- **`release.sh`** — build-skript för att signera, notarisera och paketera
+## Install
 
-## Setup i Xcode
+```sh
+brew tap orangelabweb/tap
+brew install --cask brewwatcher
+```
 
-1. **Skapa nytt projekt**: File → New → Project → macOS → App
-   - Product Name: `BrewWatcher`
-   - Interface: SwiftUI
-   - Language: Swift
-   - Minimum Deployment: macOS 14.0
+Updates arrive the same way everything else does:
 
-2. **Ersätt den autogenererade `BrewWatcherApp.swift`** med filen i denna mapp
+```sh
+brew upgrade
+```
 
-3. **Lägg in ikonen**:
-   - Öppna `Assets.xcassets`
-   - Ta bort den befintliga `AppIcon`
-   - Dra in hela `AppIcon.appiconset`-mappen
+Or grab the DMG from [Releases](https://github.com/orangelabweb/brew-watcher/releases).
 
-4. **Inställningar**:
-   - I projektets Info-flik, lägg till `Application is agent (UIElement)` = `YES`
-     (då försvinner Dock-ikonen — appen lever bara i menyraden)
-   - I Signing & Capabilities: **ta bort App Sandbox** om den finns
-     (appen måste kunna köra `brew` som subprocess)
+Requires **macOS 14 (Sonoma)** or later, and Homebrew — though if Homebrew is missing, the app walks you through installing it.
 
-5. **Bygg och kör** (⌘R). Appen dyker upp i menyraden.
+## What it does
 
-## Releasing (signera + notarisera)
+- Badges the menu bar icon with the number of outdated packages
+- Lists them with installed → available versions
+- **Upgrade all** with live progress: X/Y packages, current package, download percentage
+- Checks every 6 hours, notifies when something's upgradeable
+- Optional launch at login
+- Offers to install Homebrew if it isn't there
 
-Se `release.sh`. Innan du kör skriptet:
+It skips pinned packages, because `brew upgrade` skips them too — counting something you can't act on just leaves a badge that never clears.
 
-1. Skaffa Apple Developer Program (99 USD/år)
-2. Skapa Developer ID Application-certifikat i Xcode → Settings → Accounts
-3. Skapa app-specifikt lösenord på appleid.apple.com
-4. Spara notariseringscredentials i keychain:
-   ```bash
+Some casks need administrator rights. Rather than ask for your password, BrewWatcher hands off to Terminal so you can see exactly what runs and type it there. The app never brokers credentials.
+
+## Building from source
+
+Open `BrewWatcher.xcodeproj` and build (⌘R). No dependencies.
+
+Two settings matter:
+
+- **App Sandbox must be off.** A sandboxed app can't run `/opt/homebrew/bin/brew` as a subprocess. Xcode re-adds the sandbox to new macOS targets by default, so check Signing & Capabilities if brew suddenly can't be found.
+- **`LSUIElement = YES`** keeps it out of the Dock.
+
+Notifications only work in a properly signed build. An ad-hoc signed build fails with `UNErrorDomain Code=1 "Notifications are not allowed for this application"` regardless of where it lives; a Developer ID build is authorized immediately.
+
+Architecture notes and the reasoning behind the trickier parts live in [`CLAUDE.md`](CLAUDE.md).
+
+## Releasing
+
+`release.sh` builds, signs, packages a DMG, notarizes it with Apple, and staples the ticket.
+
+One-time setup:
+
+1. An Apple Developer Program membership and a Developer ID Application certificate
+2. An [app-specific password](https://appleid.apple.com)
+3. Store the notarization credentials in your keychain:
+
+   ```sh
    xcrun notarytool store-credentials "brewwatcher-notary" \
-     --apple-id "din@email.com" \
-     --team-id "DITT_TEAM_ID" \
-     --password "app-specifikt-lösenord"
+     --apple-id "you@example.com" \
+     --team-id "YOUR_TEAM_ID" \
+     --password "app-specific-password"
    ```
-5. Aktivera Hardened Runtime i Signing & Capabilities
-6. Fyll i `DEV_ID` i `release.sh`
-7. Kör: `chmod +x release.sh && ./release.sh`
 
-## Distribution via Homebrew Cask
+Then `./release.sh`. Bump `MARKETING_VERSION` first — the cask's `livecheck` watches GitHub Releases, and the DMG is named after the version.
 
-När appen är notariserad och uppladdad till GitHub Releases:
+After the release is published, update `version` and `sha256` in the [tap](https://github.com/orangelabweb/homebrew-tap).
 
-1. Forka `homebrew/homebrew-cask`
-2. Skapa en cask-fil med `brew create --cask <URL till DMG>`
-3. Testa lokalt: `brew install --cask ./Casks/brewwatcher.rb` och `brew audit --new --cask brewwatcher`
-4. Öppna PR till `homebrew/homebrew-cask`
+## Why a tap and not homebrew/homebrew-cask
 
-Efter merge får användarna uppdateringar via `brew upgrade` automatiskt.
+The official cask repository rejects apps whose upstream repository isn't notable enough. For self-submitted casks — where the PR author owns the repository — the thresholds are 90 forks, 90 watchers, or 225 stars ([Acceptable Casks](https://docs.brew.sh/Acceptable-Casks#rejected-casks)). That check is automated. Until BrewWatcher clears it, the tap is the way in.
 
-## Funktioner
+## License
 
-- Visar antal uppdateringsbara paket i menyradsikonen
-- Klickbar menyradsmeny med lista över utdaterade paket
-- "Uppdatera alla"-knapp med progress per paket (X/Y, %, status)
-- Auto-kontroll var 6:e timme
-- Native notiser när uppdateringar finns
-- Välkomstvy som hjälper användaren att installera Homebrew om det saknas
+[MIT](LICENSE)
