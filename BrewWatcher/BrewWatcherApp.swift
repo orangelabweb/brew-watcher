@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import ServiceManagement
+import UserNotifications
 
 // MARK: - App
 
@@ -168,6 +169,18 @@ private nonisolated final class CompletionLatch: @unchecked Sendable {
     }
 }
 
+/// Keeps notifications visible when BrewWatcher itself is the active app, which
+/// it becomes whenever the menu bar popover is open — the default is to swallow
+/// them in that case.
+private final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+}
+
 /// Thread-safe Data accumulator used by `runBrew` to drain stdout/stderr from
 /// readability handlers without capturing a mutable `var` across actor boundaries.
 private nonisolated final class DataAccumulator: @unchecked Sendable {
@@ -207,6 +220,9 @@ final class BrewMonitor: ObservableObject {
     /// stderr, so the sudo diagnosis has to be made while lines flow past.
     private var sawSudoFailure = false
 
+    /// Held strongly: `UNUserNotificationCenter.delegate` is weak.
+    private let notificationPresenter = NotificationPresenter()
+
     private var timer: Timer?
     private var installPollTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
@@ -245,6 +261,7 @@ final class BrewMonitor: ObservableObject {
             brewState = .notInstalled
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        setUpNotifications()
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -706,14 +723,32 @@ final class BrewMonitor: ObservableObject {
         return p
     }
 
+    /// Posts a notification owned by BrewWatcher.
+    ///
+    /// This used to shell out to `osascript display notification`, which needed
+    /// no permission prompt — but AppleScript notifications belong to Script
+    /// Editor, so clicking one opened Script Editor. There is no way to
+    /// re-attribute them, hence UserNotifications.
+    ///
+    /// No click action by design: `MenuBarExtra` has no public API for opening
+    /// its window (checked through the macOS 26 SDK — `isInserted` only controls
+    /// whether the icon is shown), so clicking just activates the app, which is
+    /// invisible for an `LSUIElement`. Better silence than the wrong app.
     private func notify(title: String, body: String) {
-        let safeTitle = Self.escapeAppleScript(title)
-        let safeBody = Self.escapeAppleScript(body)
-        let script = #"display notification "\#(safeBody)" with title "\#(safeTitle)" sound name "Glass""#
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        task.arguments = ["-e", script]
-        try? task.run()
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString,
+                                            content: content,
+                                            trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    private func setUpNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = notificationPresenter
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     private static func escapeAppleScript(_ s: String) -> String {

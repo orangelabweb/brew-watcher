@@ -67,7 +67,11 @@ After Terminal opens, `startPollingForBrew()` runs a 3-second timer (10-minute t
 
 ## Notifications
 
-Uses `osascript display notification` rather than `UserNotifications`. Tradeoff: no permission prompt, no rich notifications with actions, but it just works for a single-purpose utility like this.
+Uses `UNUserNotificationCenter`. This replaced `osascript display notification`, which needed no permission but produced notifications **owned by Script Editor** — clicking one opened Script Editor, which is indefensible. AppleScript notifications can't be re-attributed, so the framework is the only fix.
+
+**Clicking a notification does nothing, deliberately.** `MenuBarExtra` has no public API for opening its window — verified through the macOS 26 SDK, where `isInserted` only controls whether the icon is shown. Opening the popover would take unsupported poking at `NSApp.windows`, and the alternative (a second `Window` scene) contradicts the menu-bar-only design. So a click just activates the app, which is invisible for an `LSUIElement`. If a click action is ever wanted, that's the decision to revisit first.
+
+`NotificationPresenter` implements `willPresent` so notifications still appear while the popover is open (the app counts as active then, and the default is to suppress them).
 
 ## Icon
 
@@ -93,11 +97,12 @@ If you regenerate the icon set from the SVG, use `rsvg-convert` or `cairosvg` at
 - **Brew can't be found from a GUI app even though it works in Terminal**: GUI apps inherit a minimal PATH. Always resolve the full binary path in code and set PATH explicitly in the subprocess environment.
 - **Stuck progress bar after a brew version bump**: the verbose-output strings may have changed. Check `parseUpgradeLine` first.
 - **Sandbox sneaks back in**: Xcode adds it by default for new macOS app templates. Verify in Signing & Capabilities before each release.
+- **Notifications silently don't work in an unsigned build**: `requestAuthorization` fails with `UNErrorDomain Code=1 "Notifications are not allowed for this application"` and the status stays `notDetermined`. This is about the *signature*, not the location — an ad-hoc-signed build fails from `/Applications` just as it does from `/tmp`, while a Developer ID build is authorized immediately. Sign with a real identity before concluding the notification code is broken. Note `defaults read com.apple.ncprefs` is **not** a way to check this: an authorized app doesn't necessarily appear there. Ask the API (`getNotificationSettings`) instead.
 
 ## Things explicitly not in scope
 
 - **App Store distribution** — incompatible with how the app works (see sandbox note above).
-- **Custom UserNotifications** — `osascript` is sufficient.
+- **Notification click actions** — see [Notifications](#notifications). `MenuBarExtra` can't be opened programmatically, so a click intentionally does nothing.
 - **Sparkle auto-updates** — Homebrew Cask handles updates. Don't double up; the two can race on sha256 checks.
 - **Selective upgrades** ("upgrade only these packages") — keep the UI single-purpose. If a user wants surgical control, they'll use the terminal.
 - **Settings UI for check interval** — wire to `@AppStorage` if/when actually needed. YAGNI for now.
