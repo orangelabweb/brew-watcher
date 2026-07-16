@@ -507,6 +507,29 @@ final class BrewMonitor: ObservableObject {
     private static let percentRegex: NSRegularExpression? =
         try? NSRegularExpression(pattern: #"(\d{1,3}(?:\.\d+)?)%"#)
 
+    /// Extracts the package name from `==> Upgrading <name>`, or nil if the line
+    /// is one of the summaries that share the prefix.
+    ///
+    /// brew prints the name and the version arrow on *separate* lines
+    /// (`upgrade.rb:213-214`), so matching on `->` never fires:
+    ///     ==> Upgrading node
+    ///       20.1 -> 22.0
+    /// But two summary lines share the prefix and must not be read as packages:
+    ///     ==> Upgrading 3 dependents of upgraded formulae:   (upgrade.rb:325)
+    ///     ==> Upgrading 2 outdated packages:                 (cask/upgrade.rb:95)
+    /// Both end in a colon and lead with a bare count. A package name does
+    /// neither — `7zip` isn't a bare number, and names carry no colon. Either
+    /// test alone would do; both are kept so a reworded summary still can't
+    /// land in the UI as a package called "3".
+    private static func upgradingPackageName(in line: String) -> String? {
+        let rest = line.dropFirst("==> Upgrading ".count)
+        guard !rest.hasSuffix(":"),
+              let name = rest.split(separator: " ").first,
+              Int(name) == nil
+        else { return nil }
+        return String(name)
+    }
+
     private func parseUpgradeLine(_ line: String) {
         let clean = line.trimmingCharacters(in: .whitespaces)
         guard !clean.isEmpty, progress != nil else { return }
@@ -521,11 +544,8 @@ final class BrewMonitor: ObservableObject {
             progress?.packagePercent = nil
         } else if clean.hasPrefix("==> Downloading") {
             progress?.status = "Downloading"
-        } else if clean.hasPrefix("==> Upgrading ") && clean.contains("->") {
-            let rest = String(clean.dropFirst("==> Upgrading ".count))
-            if let name = rest.split(separator: " ").first {
-                progress?.currentPackage = String(name)
-            }
+        } else if clean.hasPrefix("==> Upgrading "), let name = Self.upgradingPackageName(in: clean) {
+            progress?.currentPackage = name
             progress?.status = "Preparing"
         } else if clean.hasPrefix("==> Pouring ") || clean.hasPrefix("==> Installing") {
             progress?.status = "Installing"

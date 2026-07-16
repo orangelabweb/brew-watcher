@@ -45,13 +45,35 @@ Both use `makeProcess(args:)` which:
 |---|---|
 | `==> Fetching X` | Sets current package, status = "Hämtar" |
 | `==> Downloading` | status = "Laddar ner" |
-| `==> Upgrading X 1.2 -> 1.3` | Sets current package, status = "Förbereder" |
+| `==> Upgrading X` | Sets current package, status = "Förbereder" (summary lines excluded — see below) |
 | `==> Pouring` / `==> Installing` | status = "Installerar" |
 | `🍺` (in any line) | `markPackageCompleted()` |
 | `XX.X%` anywhere in line | Sets `packagePercent` |
 | `sudo: ... terminal is required` | `sawSudoFailure` → offer the Terminal handoff |
 
 The text format is **not a stable API** — brew can change these strings between versions. Parsing is defensive: unknown lines are ignored. Worst case after a brew update is that some status text becomes stale; the `🍺` counter is the most stable signal and should keep working.
+
+**`==> Upgrading` needs the summary lines filtered out.** The name and the version arrow are printed on *separate* lines (`upgrade.rb:213-214`), so an obvious-looking `hasPrefix("==> Upgrading ") && contains("->")` matches nothing and "Förbereder" never fires — that branch was dead until it was fixed:
+
+```
+==> Upgrading node
+  20.1 -> 22.0
+```
+
+But simply dropping the `->` test replaces a dead branch with a wrong one: two *summary* lines share the prefix and would be read as a package named "3".
+
+```
+==> Upgrading 3 dependents of upgraded formulae:   (upgrade.rb:325)
+==> Upgrading 2 outdated packages:                 (cask/upgrade.rb:95)
+```
+
+`upgradingPackageName(in:)` rejects both — they end in a colon and lead with a bare count, and a package name does neither (`7zip` isn't a bare number; names carry no colon). Either test alone suffices; both are kept so a reworded summary still can't surface as a package name.
+
+To see what brew actually prints without running an upgrade, render it through brew's own formatter:
+
+```sh
+HOMEBREW_NO_COLOR=1 brew ruby -e 'require "utils/output"; include Utils::Output::Mixin; oh1 "Upgrading node"' | cat -A
+```
 
 **`UpgradeProgress.total` is a lower bound, not a total.** It starts at `outdated.count`, but `brew upgrade` also pours brand-new dependencies and upgrades installed dependents that were never outdated — each emits its own 🍺. `markPackageCompleted()` therefore grows `total` to match `completed` rather than letting the UI render "7/3" or push the bar past full. `completed` and `total` are `private(set)`; go through the method so the invariant can't be sidestepped.
 
