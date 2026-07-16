@@ -7,8 +7,7 @@ Lives in the menu bar, checks `brew outdated` every 6 hours, and shows a badge w
 ## Install
 
 ```sh
-brew tap orangelabweb/tap
-brew install --cask brewwatcher
+brew install --cask orangelabweb/tap/brewwatcher
 ```
 
 Updates arrive the same way everything else does:
@@ -20,6 +19,8 @@ brew upgrade
 Or grab the DMG from [Releases](https://github.com/orangelabweb/brew-watcher/releases).
 
 Requires **macOS 14 (Sonoma)** or later, and Homebrew — though if Homebrew is missing, the app walks you through installing it.
+
+> Install by the full `orangelabweb/tap/brewwatcher` name rather than tapping first. Since [Homebrew 6.0](https://docs.brew.sh/Tap-Trust), non-official taps must be trusted before Homebrew will load them, and `brew tap` + `brew install --cask brewwatcher` fails until you run `brew trust`. The fully-qualified name skips that: it trusts this one cask and nothing else in the tap.
 
 ## What it does
 
