@@ -41,6 +41,16 @@
         }
       }
     },
+    "brew %@ timed out" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "brew %@ tog för lång tid"
+          }
+        }
+      }
+    },
     "BrewWatcher is ready to use" : {
       "localizations" : {
         "sv" : {
@@ -264,6 +274,16 @@
         }
       }
     },
+    "Some packages need administrator rights. Upgrade in Terminal to enter your password." : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vissa paket kräver administratörsbehörighet. Uppdatera i Terminal för att ange ditt lösenord."
+          }
+        }
+      }
+    },
     "Starting..." : {
       "localizations" : {
         "sv" : {
@@ -300,6 +320,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Uppdatera alla"
+          }
+        }
+      }
+    },
+    "Upgrade in Terminal" : {
+      "localizations" : {
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uppdatera i Terminal"
           }
         }
       }

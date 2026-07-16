@@ -25,13 +25,17 @@ Key types:
 
 Two helpers on `BrewMonitor`:
 
-- **`runBrew(_:)`** — runs brew to completion and returns all stdout as Data. Used for `update`, `outdated`, `cleanup`.
-- **`runBrewStreaming(_:onLine:)`** — uses `readabilityHandler` on the pipes to feed lines to a callback as they arrive. Used for `upgrade` so the UI can show progress.
+- **`runBrew(_:timeout:)`** — runs brew to completion and returns all stdout as Data. Used for `update`, `outdated`, `cleanup` (all pass `commandTimeout`, 10 min).
+- **`runBrewStreaming(_:onLine:)`** — uses `readabilityHandler` on the pipes to feed lines to a callback as they arrive. Used for `upgrade` so the UI can show progress (`upgradeTimeout`, 60 min).
 
 Both use `makeProcess(args:)` which:
 - Resolves brew binary from `/opt/homebrew/bin/brew` (Apple Silicon) or `/usr/local/bin/brew` (Intel)
 - Sets a sane PATH so brew can find its own helpers
 - Sets `HOMEBREW_NO_AUTO_UPDATE`, `HOMEBREW_NO_ANALYTICS`, `HOMEBREW_NO_ENV_HINTS`, `HOMEBREW_NO_COLOR`
+
+**Always pass a timeout.** Every brew call must be able to fail on its own. `check()` guards on `!isChecking` and clears the flag in a `defer`, so a subprocess that never resumes its continuation leaves `isChecking` stuck true — the 6-hour timer keeps firing into a guard that always returns, and checking is dead until relaunch. `brew update` shells out to git, which has no network timeout of its own.
+
+`runBrew` resumes only once **stdout EOF, stderr EOF, and process exit** have all landed (`CompletionLatch`). Waiting on exit alone truncates output, since the pipes may still hold buffered bytes. Waiting on the pipes alone can hang forever, since brew's grandchildren (git, curl) inherit the write ends and can outlive brew — `readDataToEndOfFile()` in a `terminationHandler` blocks indefinitely in exactly that case. The timeout escalates SIGTERM → SIGKILL, then abandons the pipes regardless, so no combination of stuck child and held pipe can strand a continuation.
 
 ## Parsing brew output
 
@@ -43,10 +47,13 @@ Both use `makeProcess(args:)` which:
 | `==> Downloading` | status = "Laddar ner" |
 | `==> Upgrading X 1.2 -> 1.3` | Sets current package, status = "Förbereder" |
 | `==> Pouring` / `==> Installing` | status = "Installerar" |
-| `🍺` (in any line) | Increments `completed` |
+| `🍺` (in any line) | `markPackageCompleted()` |
 | `XX.X%` anywhere in line | Sets `packagePercent` |
+| `sudo: ... terminal is required` | `sawSudoFailure` → offer the Terminal handoff |
 
 The text format is **not a stable API** — brew can change these strings between versions. Parsing is defensive: unknown lines are ignored. Worst case after a brew update is that some status text becomes stale; the `🍺` counter is the most stable signal and should keep working.
+
+**`UpgradeProgress.total` is a lower bound, not a total.** It starts at `outdated.count`, but `brew upgrade` also pours brand-new dependencies and upgrades installed dependents that were never outdated — each emits its own 🍺. `markPackageCompleted()` therefore grows `total` to match `completed` rather than letting the UI render "7/3" or push the bar past full. `completed` and `total` are `private(set)`; go through the method so the invariant can't be sidestepped.
 
 ## The JSON API is stable
 
@@ -81,6 +88,8 @@ If you regenerate the icon set from the SVG, use `rsvg-convert` or `cairosvg` at
 
 - **`ObservableObject` doesn't compile**: add `import Combine`. SwiftUI usually re-exports it but sometimes the synthesis breaks with `@MainActor`.
 - **Same outdated packages stick around after upgrade**: don't use `--greedy` on `brew outdated` — it lists self-updating casks (Chrome, Slack) that `brew upgrade` won't touch without the same flag. Asymmetric flags create permanent "outdated" entries.
+- **"Upgrade all" dies on a cask that needs admin rights**: casks with pkg installers make brew shell out to `sudo`, and a menu bar app has no controlling tty for sudo to prompt on — it fails with `sudo: a terminal is required to read the password`. Homebrew only passes `sudo -A` when `SUDO_ASKPASS` is set, so the "fix" would be an askpass helper that collects the user's password into a dialog. **Don't.** That means brokering credentials, which this app deliberately never does. `upgradeAll()` detects the failure and hands off to Terminal instead, same as the install flow. Note `runBrewStreaming` discards stderr, so the detection has to happen on the line stream (`handleUpgradeLine`), not in the thrown error.
+- **Pinned packages are the same trap, different cause**: `brew outdated --json=v2` reports pinned packages (with `"pinned": true`), but `brew upgrade` skips them by design — it upgrades "outdated, *unpinned*" packages (`upgrade.rb`: `outdated.reject(&:pinned?)`). Anything listed by `outdated` but not upgradeable by `upgrade` becomes a badge no click can clear. `check()` filters `pinned` out for this reason. The general rule: whatever the app counts must be exactly what "Upgrade all" can act on.
 - **Brew can't be found from a GUI app even though it works in Terminal**: GUI apps inherit a minimal PATH. Always resolve the full binary path in code and set PATH explicitly in the subprocess environment.
 - **Stuck progress bar after a brew version bump**: the verbose-output strings may have changed. Check `parseUpgradeLine` first.
 - **Sandbox sneaks back in**: Xcode adds it by default for new macOS app templates. Verify in Signing & Capabilities before each release.

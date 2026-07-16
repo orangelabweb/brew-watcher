@@ -36,12 +36,27 @@ struct OutdatedPackage: Identifiable, Decodable {
     let name: String
     let installedVersions: [String]
     let currentVersion: String
+    /// `brew outdated` lists pinned packages, but `brew upgrade` skips them.
+    /// Acting on this is what keeps a pinned package from becoming a badge
+    /// that never clears — the same asymmetry trap as `--greedy`.
+    let pinned: Bool
     var id: String { name }
 
     enum CodingKeys: String, CodingKey {
         case name
         case installedVersions = "installed_versions"
         case currentVersion = "current_version"
+        case pinned
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        installedVersions = try c.decodeIfPresent([String].self, forKey: .installedVersions) ?? []
+        currentVersion = try c.decode(String.self, forKey: .currentVersion)
+        // Defaulted rather than required: if brew ever drops the field, treat
+        // everything as upgradeable instead of decoding nothing at all.
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
     }
 }
 
@@ -51,11 +66,25 @@ struct OutdatedResponse: Decodable {
 }
 
 struct UpgradeProgress {
-    var total: Int
-    var completed: Int = 0
+    /// Starts as the outdated count, which is only ever a *lower bound* — see
+    /// `markPackageCompleted()`. Never assign `completed` past this directly.
+    private(set) var total: Int
+    private(set) var completed: Int = 0
     var currentPackage: String?
     var status: LocalizedStringResource = "Starting..."
     var packagePercent: Double?
+
+    init(total: Int) { self.total = total }
+
+    /// `brew upgrade` does more than the outdated list implies: it pours
+    /// brand-new dependencies, and upgrades installed dependents that were
+    /// never outdated themselves. Both emit 🍺, so `completed` can pass the
+    /// initial total. Grow the total instead of rendering "7/3" or a bar past
+    /// full — an honest count that lands on 100% beats an impossible one.
+    mutating func markPackageCompleted() {
+        completed += 1
+        total = max(total, completed)
+    }
 
     var overallFraction: Double {
         guard total > 0 else { return 0 }
@@ -103,6 +132,42 @@ private nonisolated final class TimeoutFlag: @unchecked Sendable {
     func set() { lock.lock(); _value = true; lock.unlock() }
 }
 
+/// Tracks the events that must all land before a `runBrew` continuation may
+/// resume: stdout EOF, stderr EOF, and process exit.
+///
+/// Waiting on process exit alone truncates output, because the pipes can still
+/// hold buffered bytes. Waiting on the pipes alone can hang forever, because
+/// brew's grandchildren (git, curl) inherit the write ends and may outlive
+/// brew. So we wait for all three, and let a timeout override the whole thing.
+///
+/// Exactly one caller ever gets `true` back, which makes double-resume — a
+/// hard crash in Swift — structurally impossible.
+private nonisolated final class CompletionLatch: @unchecked Sendable {
+    enum Event { case stdoutEOF, stderrEOF, exit }
+
+    private let lock = NSLock()
+    private var pending: Set<Event> = [.stdoutEOF, .stderrEOF, .exit]
+    private var resumed = false
+
+    /// Marks `event` done. Returns true only to the caller that completes the set.
+    func complete(_ event: Event) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        pending.remove(event)
+        guard pending.isEmpty, !resumed else { return false }
+        resumed = true
+        return true
+    }
+
+    /// Abandons the remaining events (timeout path). Returns true only if
+    /// nothing has resumed yet.
+    func abandon() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !resumed else { return false }
+        resumed = true
+        return true
+    }
+}
+
 /// Thread-safe Data accumulator used by `runBrew` to drain stdout/stderr from
 /// readability handlers without capturing a mutable `var` across actor boundaries.
 private nonisolated final class DataAccumulator: @unchecked Sendable {
@@ -134,12 +199,23 @@ final class BrewMonitor: ObservableObject {
     @Published var progress: UpgradeProgress?
     @Published var brewState: BrewState
     @Published private(set) var launchAtLogin: Bool = false
+    /// Set when an upgrade dies on a sudo prompt we can't answer, which is the
+    /// one failure the user can actually resolve — in Terminal.
+    @Published private(set) var needsTerminalUpgrade = false
+
+    /// Tripped by the upgrade line stream. `runBrewStreaming` throws away
+    /// stderr, so the sudo diagnosis has to be made while lines flow past.
+    private var sawSudoFailure = false
 
     private var timer: Timer?
     private var installPollTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private let checkInterval: TimeInterval = 6 * 60 * 60
     private let upgradeTimeout: TimeInterval = 60 * 60
+    /// Backstop for the short-running brew commands. Generous enough that a slow
+    /// `brew update` on a bad connection still finishes; short enough that a
+    /// stalled one can't disable checking until the app is relaunched.
+    private let commandTimeout: TimeInterval = 10 * 60
 
     private let candidatePaths = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
     private var cachedBrewPath: String?
@@ -228,6 +304,24 @@ final class BrewMonitor: ObservableObject {
 
     // MARK: - Installation
 
+    /// Opens Terminal.app and runs `command` in a new window.
+    ///
+    /// Terminal is where anything needing a password happens: the user sees the
+    /// exact command and types their own sudo password into a real tty. The app
+    /// never brokers credentials.
+    private func runInTerminal(_ command: String) throws {
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "\(Self.escapeAppleScript(command))"
+        end tell
+        """
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        task.arguments = ["-e", script]
+        try task.run()
+    }
+
     /// Opens Terminal.app and runs the official brew install script.
     /// The user sees exactly what runs, enters their sudo password in Terminal,
     /// and the app polls in the background until brew appears on disk.
@@ -237,24 +331,26 @@ final class BrewMonitor: ObservableObject {
 
         let installCommand = "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
 
-        // AppleScript that opens Terminal, focuses the window, and types the command.
-        let script = """
-        tell application "Terminal"
-            activate
-            do script "\(installCommand.replacingOccurrences(of: "\"", with: "\\\""))"
-        end tell
-        """
-
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        task.arguments = ["-e", script]
-
         do {
-            try task.run()
+            try runInTerminal(installCommand)
             startPollingForBrew()
         } catch {
             errorMessage = String(localized: "Couldn't open Terminal: \(error.localizedDescription)")
             brewState = .notInstalled
+        }
+    }
+
+    /// Hands the upgrade to Terminal after a sudo prompt blocked us. Casks with
+    /// pkg installers need root, and a GUI app has no controlling tty for sudo
+    /// to prompt on.
+    func upgradeInTerminal() {
+        guard let brewPath else { return }
+        do {
+            try runInTerminal("\(brewPath) upgrade")
+            needsTerminalUpgrade = false
+            errorMessage = nil
+        } catch {
+            errorMessage = String(localized: "Couldn't open Terminal: \(error.localizedDescription)")
         }
     }
 
@@ -300,14 +396,17 @@ final class BrewMonitor: ObservableObject {
     func check() async {
         guard !isChecking, brewPath != nil else { return }
         isChecking = true
-        errorMessage = nil
+        clearError()
         defer { isChecking = false }
 
         do {
-            _ = try await runBrew(["update", "--quiet"])
-            let data = try await runBrew(["outdated", "--json=v2"])
+            _ = try await runBrew(["update", "--quiet"], timeout: commandTimeout)
+            let data = try await runBrew(["outdated", "--json=v2"], timeout: commandTimeout)
             let response = try JSONDecoder().decode(OutdatedResponse.self, from: data)
-            outdated = response.formulae + response.casks
+            // Pinned packages are excluded deliberately: brew upgrade won't touch
+            // them, so counting them would badge the menu bar with work that no
+            // amount of clicking "Upgrade all" can ever clear.
+            outdated = (response.formulae + response.casks).filter { !$0.pinned }
             lastChecked = Date()
 
             let currentNames = Set(outdated.map(\.name))
@@ -330,6 +429,8 @@ final class BrewMonitor: ObservableObject {
     func upgradeAll() async {
         guard !isUpgrading, brewPath != nil else { return }
         isUpgrading = true
+        clearError()
+        sawSudoFailure = false
         progress = UpgradeProgress(total: outdated.count)
         defer {
             isUpgrading = false
@@ -338,13 +439,52 @@ final class BrewMonitor: ObservableObject {
 
         do {
             try await runBrewStreaming(["upgrade", "--verbose"], timeout: upgradeTimeout) { [weak self] line in
-                self?.parseUpgradeLine(line)
+                self?.handleUpgradeLine(line)
             }
-            _ = try await runBrew(["cleanup"])
+            _ = try await runBrew(["cleanup"], timeout: commandTimeout)
             await check()
         } catch {
-            errorMessage = error.localizedDescription
+            // Refresh before reporting: brew works through packages one at a
+            // time, so a run that died on package 4 of 6 still upgraded three.
+            // The list has to show what's actually installed now.
+            await check()
+            if sawSudoFailure {
+                errorMessage = String(localized: "Some packages need administrator rights. Upgrade in Terminal to enter your password.")
+                needsTerminalUpgrade = true
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
+    }
+
+    /// `needsTerminalUpgrade` only ever qualifies the message in `errorMessage`,
+    /// so the two must be cleared together or the Terminal button outlives the
+    /// error that justified it and reappears attached to an unrelated one.
+    private func clearError() {
+        errorMessage = nil
+        needsTerminalUpgrade = false
+    }
+
+    private func handleUpgradeLine(_ line: String) {
+        if Self.indicatesSudoFailure(line) { sawSudoFailure = true }
+        parseUpgradeLine(line)
+    }
+
+    /// Detects brew hitting a sudo prompt it can't display. Homebrew only passes
+    /// `sudo -A` when `SUDO_ASKPASS` is set; without it, sudo needs a tty that a
+    /// menu bar app doesn't have, and emits:
+    ///   "sudo: a terminal is required to read the password..."
+    ///   "sudo: a password is required"
+    /// Matched loosely on purpose — sudo's wording is no more of an API than
+    /// brew's, and a false positive only offers a Terminal button the user can
+    /// ignore.
+    private static func indicatesSudoFailure(_ line: String) -> Bool {
+        let l = line.lowercased()
+        guard l.contains("sudo") || l.contains("askpass") else { return false }
+        return l.contains("terminal is required")
+            || l.contains("password is required")
+            || l.contains("no tty present")
+            || l.contains("askpass")
     }
 
     private static let percentRegex: NSRegularExpression? =
@@ -374,7 +514,7 @@ final class BrewMonitor: ObservableObject {
             progress?.status = "Installing"
             progress?.packagePercent = nil
         } else if clean.contains("🍺") {
-            progress?.completed += 1
+            progress?.markPackageCompleted()
             progress?.packagePercent = nil
             progress?.status = "Done"
         }
@@ -393,7 +533,13 @@ final class BrewMonitor: ObservableObject {
 
     // MARK: - Subprocess
 
-    private func runBrew(_ args: [String]) async throws -> Data {
+    /// Runs brew to completion and returns stdout.
+    ///
+    /// `timeout` is a backstop, not a tuning knob: without it a stalled `brew
+    /// update` (git fetch has no network timeout of its own) would strand the
+    /// continuation, leaving `isChecking` true forever and killing every future
+    /// check until relaunch.
+    private func runBrew(_ args: [String], timeout: TimeInterval? = nil) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             guard let process = makeProcess(args: args) else {
                 continuation.resume(throwing: NSError(domain: "Brew", code: -1,
@@ -409,38 +555,81 @@ final class BrewMonitor: ObservableObject {
             // 64KB pipe buffer while we wait for it to terminate.
             let outAcc = DataAccumulator()
             let errAcc = DataAccumulator()
+            let latch = CompletionLatch()
+            let timedOut = TimeoutFlag()
 
-            outPipe.fileHandleForReading.readabilityHandler = { fh in
-                let d = fh.availableData
-                if !d.isEmpty { outAcc.append(d) }
-            }
-            errPipe.fileHandleForReading.readabilityHandler = { fh in
-                let d = fh.availableData
-                if !d.isEmpty { errAcc.append(d) }
-            }
+            let timeoutError = NSError(domain: "Brew", code: -2,
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "brew \(argString) timed out")])
 
-            process.terminationHandler = { proc in
+            let finish = {
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 errPipe.fileHandleForReading.readabilityHandler = nil
-                // Drain any bytes the handler missed between the last fire and termination.
-                outAcc.append(outPipe.fileHandleForReading.readDataToEndOfFile())
-                errAcc.append(errPipe.fileHandleForReading.readDataToEndOfFile())
                 let finalOut = outAcc.drain()
                 let finalErr = errAcc.drain()
 
-                if proc.terminationStatus == 0 {
+                // Check this before terminationStatus: a timeout that lands as
+                // SIGTERM would otherwise surface as a generic "failed".
+                if timedOut.value {
+                    continuation.resume(throwing: timeoutError)
+                } else if process.terminationStatus == 0 {
                     continuation.resume(returning: finalOut)
                 } else {
-                    let msg = String(data: finalErr, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        ?? String(localized: "brew \(argString) failed")
+                    let stderr = String(data: finalErr, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let msg = stderr.isEmpty ? String(localized: "brew \(argString) failed") : stderr
                     continuation.resume(throwing: NSError(domain: "Brew",
-                        code: Int(proc.terminationStatus),
+                        code: Int(process.terminationStatus),
                         userInfo: [NSLocalizedDescriptionKey: msg]))
                 }
             }
 
-            do { try process.run() } catch { continuation.resume(throwing: error) }
+            // An empty read means EOF: the write end is closed everywhere.
+            outPipe.fileHandleForReading.readabilityHandler = { fh in
+                let d = fh.availableData
+                if d.isEmpty {
+                    if latch.complete(.stdoutEOF) { finish() }
+                } else {
+                    outAcc.append(d)
+                }
+            }
+            errPipe.fileHandleForReading.readabilityHandler = { fh in
+                let d = fh.availableData
+                if d.isEmpty {
+                    if latch.complete(.stderrEOF) { finish() }
+                } else {
+                    errAcc.append(d)
+                }
+            }
+
+            process.terminationHandler = { _ in
+                if latch.complete(.exit) { finish() }
+            }
+
+            if let timeout {
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak process] in
+                    // Deliberately not guarded on isRunning: an exited brew whose
+                    // grandchild still holds the pipes open leaves EOF pending,
+                    // and that path needs the abandon below just as much.
+                    if let process, process.isRunning {
+                        timedOut.set()
+                        process.terminate()
+                    }
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [weak process] in
+                        if let process, process.isRunning {
+                            kill(process.processIdentifier, SIGKILL)
+                        }
+                        // No-op once finish() has run; abandon() yields true at
+                        // most once, so this can't double-resume.
+                        if latch.abandon() { continuation.resume(throwing: timeoutError) }
+                    }
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                if latch.abandon() { continuation.resume(throwing: error) }
+            }
         }
     }
 
@@ -621,6 +810,13 @@ struct MenuView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
+            // A banner, not a replacement for `content`: a failed check says
+            // nothing about the packages we already know are outdated, and
+            // hiding them is the opposite of what an error should do.
+            if let error = brew.errorMessage {
+                errorBanner(error)
+                Divider()
+            }
             if let p = brew.progress {
                 progressSection(p)
                 Divider()
@@ -631,6 +827,27 @@ struct MenuView: View {
             Divider()
             footer
         }
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if brew.needsTerminalUpgrade {
+                Button("Upgrade in Terminal") { brew.upgradeInTerminal() }
+                    .font(.caption)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     private var header: some View {
@@ -675,13 +892,7 @@ struct MenuView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let error = brew.errorMessage {
-            Text(error)
-                .font(.caption)
-                .foregroundStyle(.red)
-                .textSelection(.enabled)
-                .padding(12)
-        } else if brew.isUpgrading {
+        if brew.isUpgrading {
             Text("Upgrading...")
                 .foregroundStyle(.secondary)
                 .padding(12)
